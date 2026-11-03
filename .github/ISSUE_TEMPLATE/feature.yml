@@ -1,0 +1,30 @@
+name: Feature request
+description: A capability the project does not have and you believe it should.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do and where the project stops you today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: What you would expect to type or see. An example invocation helps.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you tried, or other tools that do this and how.
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Would you implement it?
+      options:
+        - "Yes, with guidance"
+        - "No"

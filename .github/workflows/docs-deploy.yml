@@ -1,0 +1,45 @@
+# Reusable docs deploy for the organization's projects (the40thieves.dev plan, P1-01 stub).
+#
+# P2-07 fills this in: build a project's docs with Starlight and upload them as static assets of
+# the hub Worker under /<project>/docs/. Until then the job validates its inputs and exits green,
+# so a caller can wire it up today without deploying anything.
+#
+# Caller example (in a project repository):
+#   jobs:
+#     docs:
+#       uses: The-40-Thieves/.github/.github/workflows/docs-deploy.yml@main
+#       with:
+#         project: codecalc
+#         docs-path: docs
+name: docs-deploy
+
+on:
+  workflow_call:
+    inputs:
+      project:
+        description: The project slug, matching its product page at https://the40thieves.dev/<project>/
+        required: true
+        type: string
+      docs-path:
+        description: Repository-relative directory holding the docs sources
+        required: false
+        default: docs
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    name: docs (${{ inputs.project }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate inputs
+        env:
+          PROJECT: ${{ inputs.project }}
+          DOCS_PATH: ${{ inputs.docs-path }}
+        run: |
+          case "$PROJECT" in
+            *[!a-z0-9-]*|'') echo "project must be a lowercase slug, got '$PROJECT'"; exit 1 ;;
+          esac
+          echo "docs-deploy stub: would build '$DOCS_PATH' for '$PROJECT' (P2-07 implements the deploy)"

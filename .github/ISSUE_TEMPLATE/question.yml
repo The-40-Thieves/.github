@@ -1,0 +1,15 @@
+name: Question
+description: Something the README and docs did not answer.
+labels: [question]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+    validations:
+      required: true
+  - type: textarea
+    id: looked
+    attributes:
+      label: Where you looked
+      description: The docs page or section you read first, so the answer can improve it.
