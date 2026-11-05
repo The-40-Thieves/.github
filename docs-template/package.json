@@ -1,0 +1,32 @@
+{
+  "name": "@the40thieves/docs-template",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Starlight template that publishes a project's docs/ directory to the40thieves.dev/<project>/docs (the40thieves.dev plan, P2-07).",
+  "type": "module",
+  "packageManager": "pnpm@12.15.0",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "sync": "node scripts/sync-docs.mjs",
+    "build": "astro build",
+    "check-dist": "node scripts/check-dist.mjs",
+    "worker-config": "node scripts/wrangler-config.mjs",
+    "verify-live": "node scripts/verify-live.mjs",
+    "test": "node --test scripts/",
+    "fixture": "node scripts/sync-docs.mjs --source fixture/docs --project fixture --repo The-40-Thieves/.github --ref main --sha 0000000000000000000000000000000000000000 --docs-path docs-template/fixture/docs"
+  },
+  "dependencies": {
+    "@astrojs/markdown-remark": "7.3.0",
+    "@astrojs/starlight": "0.42.7",
+    "astro": "7.4.2",
+    "github-slugger": "2.0.0",
+    "sharp": "0.34.5",
+    "starlight-links-validator": "0.27.0",
+    "unist-util-visit": "5.1.0"
+  },
+  "devDependencies": {
+    "wrangler": "4.152.0"
+  }
+}

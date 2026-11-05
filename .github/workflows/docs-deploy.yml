@@ -1,16 +1,27 @@
-# Reusable docs deploy for the organization's projects (the40thieves.dev plan, P1-01 stub).
+# Reusable docs deploy for the organization's projects (the40thieves.dev plan, P2-07).
 #
-# P2-07 fills this in: build a project's docs with Starlight and upload them as static assets of
-# the hub Worker under /<project>/docs/. Until then the job validates its inputs and exits green,
-# so a caller can wire it up today without deploying anything.
+# Builds the caller's docs directory with the Starlight template in this repository and deploys
+# it as an assets-only Worker named <project>-docs on the route the40thieves.dev/<project>/docs*,
+# which takes precedence over the hub's Custom Domain for that one path. A docs change on the
+# caller's main branch is live within minutes without a hub rebuild.
 #
-# Caller example (in a project repository):
+# Caller example (.github/workflows/docs.yml in a project repository):
+#   on:
+#     push:
+#       branches: [main]
+#       paths: ['docs/**', '.github/workflows/docs.yml']
+#     workflow_dispatch:
 #   jobs:
 #     docs:
-#       uses: The-40-Thieves/.github/.github/workflows/docs-deploy.yml@main
+#       uses: The-40-Thieves/.github/.github/workflows/docs-deploy.yml@<commit sha>
 #       with:
 #         project: codecalc
-#         docs-path: docs
+#       secrets:
+#         cloudflare-api-token: ${{ secrets.CLOUDFLARE_DOCS_API_TOKEN }}
+#         cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+#
+# The token is the org secret CLOUDFLARE_DOCS_API_TOKEN (Workers Scripts edit on the account,
+# Workers Routes edit on the the40thieves.dev zone), granted to each repository that publishes docs.
 name: docs-deploy
 
 on:
@@ -25,14 +36,38 @@ on:
         required: false
         default: docs
         type: string
+      title:
+        description: Site title shown in the docs header; defaults to the project slug
+        required: false
+        default: ''
+        type: string
+      deploy:
+        description: Deploy after the build (set false to only build and check)
+        required: false
+        default: true
+        type: boolean
+    secrets:
+      cloudflare-api-token:
+        description: Cloudflare API token with Workers Scripts edit and Workers Routes edit
+        required: false
+      cloudflare-account-id:
+        description: Cloudflare account id
+        required: false
 
 permissions:
   contents: read
+
+env:
+  TEMPLATE: .docs-template/docs-template
 
 jobs:
   docs:
     name: docs (${{ inputs.project }})
     runs-on: ubuntu-latest
+    # One deploy per project at a time, in order: a later push waits for the earlier one.
+    concurrency:
+      group: docs-deploy-${{ inputs.project }}
+      cancel-in-progress: false
     steps:
       - name: Validate inputs
         env:
@@ -42,4 +77,68 @@ jobs:
           case "$PROJECT" in
             *[!a-z0-9-]*|'') echo "project must be a lowercase slug, got '$PROJECT'"; exit 1 ;;
           esac
-          echo "docs-deploy stub: would build '$DOCS_PATH' for '$PROJECT' (P2-07 implements the deploy)"
+          case "$DOCS_PATH" in
+            ''|/*|*..*) echo "docs-path must be a repository-relative directory, got '$DOCS_PATH'"; exit 1 ;;
+          esac
+      - name: Check out the project
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out the docs template at the version of this workflow
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: The-40-Thieves/.github
+          ref: ${{ github.job_workflow_sha }}
+          path: .docs-template
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: ${{ env.TEMPLATE }}/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: ${{ env.TEMPLATE }}/pnpm-lock.yaml
+      - name: Install the template
+        working-directory: ${{ env.TEMPLATE }}
+        run: pnpm install --frozen-lockfile
+      - name: Sync the docs into the template
+        working-directory: ${{ env.TEMPLATE }}
+        env:
+          PROJECT: ${{ inputs.project }}
+          DOCS_PATH: ${{ inputs.docs-path }}
+          TITLE: ${{ inputs.title }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          node scripts/sync-docs.mjs \
+            --source "$GITHUB_WORKSPACE/$DOCS_PATH" \
+            --project "$PROJECT" \
+            --docs-path "$DOCS_PATH" \
+            --title "${TITLE:-$PROJECT}" \
+            --repo "$REPO" \
+            --ref "$REF" \
+            --sha "$SHA"
+      - name: Build
+        working-directory: ${{ env.TEMPLATE }}
+        run: pnpm build
+      - name: Check the build output
+        working-directory: ${{ env.TEMPLATE }}
+        run: pnpm check-dist
+      - name: Write the Worker configuration
+        working-directory: ${{ env.TEMPLATE }}
+        run: pnpm worker-config
+      - name: Deploy the docs Worker
+        if: ${{ inputs.deploy }}
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
+        with:
+          apiToken: ${{ secrets.cloudflare-api-token }}
+          accountId: ${{ secrets.cloudflare-account-id }}
+          workingDirectory: ${{ env.TEMPLATE }}
+          packageManager: pnpm
+          command: deploy
+      - name: Verify the live docs
+        if: ${{ inputs.deploy }}
+        working-directory: ${{ env.TEMPLATE }}
+        run: pnpm verify-live

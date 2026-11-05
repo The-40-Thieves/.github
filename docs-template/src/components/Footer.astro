@@ -1,0 +1,46 @@
+---
+// Starlight's footer plus the provenance stamp the hub shows on every page: which file, at
+// which commit, built when, and the way back to the40thieves.dev.
+import Default from '@astrojs/starlight/components/Footer.astro';
+
+import build from '../../.docs-build.json';
+
+const { entry } = Astro.locals.starlightRoute;
+const sourcePath: string | undefined = entry.data.sourcePath;
+const shortSha = build.sha.slice(0, 7);
+const commitUrl = `https://github.com/${build.repo}/commit/${build.sha}`;
+const fileUrl = sourcePath
+  ? `https://github.com/${build.repo}/blob/${build.sha}/${sourcePath}`
+  : `https://github.com/${build.repo}/tree/${build.sha}/${build.docsPath}`;
+const hubUrl = `https://the40thieves.dev/${build.project}/`;
+---
+
+<Default><slot /></Default>
+<div class="provenance" data-pagefind-ignore>
+  <span>
+    Source <a href={fileUrl}><code>{sourcePath ?? build.docsPath}</code></a> at
+    <a href={commitUrl}><code>{shortSha}</code></a>, built
+    <time datetime={build.builtAt}>{build.builtAt.slice(0, 16).replace('T', ' ')} UTC</time>.
+  </span>
+  <a class="sesame" href={hubUrl}>Open Sesame: back to the40thieves.dev</a>
+</div>
+
+<style>
+  .provenance {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    justify-content: space-between;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--sl-color-hairline);
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+  }
+  .provenance code {
+    font-size: inherit;
+  }
+  .sesame {
+    white-space: nowrap;
+  }
+</style>
