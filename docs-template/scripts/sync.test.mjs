@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { pageTitle, sync } from './sync-docs.mjs';
+import { pageTitle, parseOptions, sync } from './sync-docs.mjs';
 
 function docsTree(files) {
   const root = mkdtempSync(join(tmpdir(), 'docs-sync-'));
@@ -54,6 +54,45 @@ test('sync generates an index that lists every page when the docs root has no RE
   assert.match(index, /^- \[Guide\]\(\/demo\/docs\/guide\/\)$/m);
   assert.match(index, /^- \[Setup: fast\]\(\/demo\/docs\/guide\/setup\/\)$/m);
   assert.ok(index.indexOf('[Intro]') < index.indexOf('## Guide'), 'root pages come first');
+});
+
+const argv = (...extra) => ['--source', 'docs', '--project', 'demo', '--repo', 'The-40-Thieves/demo', '--sha', '0'.repeat(40), ...extra];
+
+test('parseOptions excludes superpowers by default and accepts repeated or comma-separated --exclude', () => {
+  assert.deepEqual(parseOptions(argv()).exclude, ['superpowers']);
+  assert.deepEqual(parseOptions(argv('--exclude', '')).exclude, []);
+  assert.deepEqual(parseOptions(argv('--exclude', 'drafts/, internal/notes.md', '--exclude', 'superpowers')).exclude, [
+    'drafts',
+    'internal/notes.md',
+    'superpowers',
+  ]);
+  assert.throws(() => parseOptions(argv('--exclude', '../secrets')), /exclude must stay inside the docs directory/);
+  assert.throws(() => parseOptions(argv('--exclude', '/etc')), /exclude must stay inside the docs directory/);
+});
+
+test('sync leaves excluded paths out of the content, the public files and the generated index', () => {
+  const tree = docsTree({
+    'intro.md': '# Intro\n',
+    'superpowers/plans/2026-01-01-plan.md': '# Plan\n',
+    'superpowers/specs/design.md': '# Design\n',
+    'superpowers/data.json': '{}\n',
+    'superstar/page.md': '# Superstar\n',
+    'notes/private.md': '# Private\n',
+    'notes/public.md': '# Public\n',
+  });
+  const result = sync({ ...options(tree), exclude: ['superpowers', 'notes/private.md'] });
+  assert.equal(result.pages, 4, 'intro, superstar, notes/public and the generated index');
+  assert.equal(result.files, 0);
+  assert.equal(result.excluded, 4);
+  const content = join(tree.out, 'src/content/docs');
+  assert.equal(existsSync(join(content, 'superpowers')), false);
+  assert.equal(existsSync(join(content, 'notes/private.md')), false);
+  assert.equal(existsSync(join(content, 'notes/public.md')), true);
+  assert.equal(existsSync(join(content, 'superstar/page.md')), true, 'a prefix matches whole path segments only');
+  assert.equal(existsSync(join(tree.out, 'public/superpowers')), false);
+  const index = readFileSync(join(content, 'index.md'), 'utf8');
+  assert.doesNotMatch(index, /superpowers|Plan|Design|Private/);
+  assert.match(index, /^- \[Superstar\]\(\/demo\/docs\/superstar\/page\/\)$/m);
 });
 
 test('sync keeps a README as the index and generates nothing', () => {

@@ -58,6 +58,10 @@ jobs:
           test -f dist/_headers
           grep -q 'Page one' $site/guide/one/index.html
           grep -q '<img' $site/guide/one/index.html
+          # superpowers/ (planning files) is excluded by default: no page, no public file, no link
+          test ! -e $site/superpowers
+          ! grep -rq 'must not publish' $site
+          ! grep -q 'superpowers' $site/index.html
 
   build-as-caller:
     name: build-as-caller

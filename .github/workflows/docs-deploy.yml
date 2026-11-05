@@ -41,6 +41,13 @@ on:
         required: false
         default: ''
         type: string
+      docs-exclude:
+        description: >-
+          Paths under docs-path to leave out of the site, comma-separated (a directory or a file).
+          Defaults to `superpowers`, the planning directory; pass an empty string to publish everything.
+        required: false
+        default: superpowers
+        type: string
       deploy:
         description: Deploy after the build (set false to only build and check)
         required: false
@@ -73,12 +80,16 @@ jobs:
         env:
           PROJECT: ${{ inputs.project }}
           DOCS_PATH: ${{ inputs.docs-path }}
+          DOCS_EXCLUDE: ${{ inputs.docs-exclude }}
         run: |
           case "$PROJECT" in
             *[!a-z0-9-]*|'') echo "project must be a lowercase slug, got '$PROJECT'"; exit 1 ;;
           esac
           case "$DOCS_PATH" in
             ''|/*|*..*) echo "docs-path must be a repository-relative directory, got '$DOCS_PATH'"; exit 1 ;;
+          esac
+          case "$DOCS_EXCLUDE" in
+            /*|*..*) echo "docs-exclude must name paths under docs-path, got '$DOCS_EXCLUDE'"; exit 1 ;;
           esac
       - name: Check out the project
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -107,6 +118,7 @@ jobs:
         env:
           PROJECT: ${{ inputs.project }}
           DOCS_PATH: ${{ inputs.docs-path }}
+          DOCS_EXCLUDE: ${{ inputs.docs-exclude }}
           TITLE: ${{ inputs.title }}
           REPO: ${{ github.repository }}
           REF: ${{ github.ref_name }}
@@ -116,6 +128,7 @@ jobs:
             --source "$GITHUB_WORKSPACE/$DOCS_PATH" \
             --project "$PROJECT" \
             --docs-path "$DOCS_PATH" \
+            --exclude "$DOCS_EXCLUDE" \
             --title "${TITLE:-$PROJECT}" \
             --repo "$REPO" \
             --ref "$REF" \
