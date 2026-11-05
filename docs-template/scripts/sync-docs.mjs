@@ -4,6 +4,8 @@
 //               a docs tree without a README gets a generated index that lists every page
 //   images    → src/content/docs (Astro optimises relative images) and public/ (direct links)
 //   anything else → public/<same path>, so links to schemas, SQL and samples keep working
+//   --exclude     → docs-relative paths (a directory or a file, repeatable or comma-separated)
+//                   left out entirely; `superpowers` by default, so planning files stay unpublished
 // and writes .docs-build.json (read by astro.config.mjs, the footer and the Worker config).
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
@@ -25,6 +27,29 @@ import {
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 const SHA = /^[0-9a-f]{40}$/;
 const IGNORED_DIRECTORIES = new Set(['node_modules', '.git']);
+const DEFAULT_EXCLUDE = 'superpowers';
+
+/** Docs-relative paths to leave out, from repeated or comma-separated values; empty means none. */
+export function parseExclude(values) {
+  const paths = [];
+  for (const value of values) {
+    for (const raw of value.split(',')) {
+      const trimmed = raw.trim();
+      if (trimmed === '') continue;
+      const path = trimmed.replace(/^\.?\/+|\/+$/g, '');
+      if (path === '' || trimmed.startsWith('/') || path.split('/').includes('..')) {
+        throw new Error(`exclude must stay inside the docs directory, got '${trimmed}'`);
+      }
+      if (!paths.includes(path)) paths.push(path);
+    }
+  }
+  return paths;
+}
+
+/** Whether a docs-relative path is one of the excluded paths or sits under an excluded directory. */
+export function isExcluded(file, exclude) {
+  return exclude.some((path) => file === path || file.startsWith(`${path}/`));
+}
 
 export function parseOptions(argv) {
   const { values } = parseArgs({
@@ -38,6 +63,7 @@ export function parseOptions(argv) {
       'docs-path': { type: 'string', default: 'docs' },
       title: { type: 'string' },
       out: { type: 'string', default: '.' },
+      exclude: { type: 'string', multiple: true, default: [DEFAULT_EXCLUDE] },
     },
   });
   const missing = ['source', 'project', 'repo', 'sha'].filter((key) => !values[key]);
@@ -56,6 +82,7 @@ export function parseOptions(argv) {
     sha: values.sha,
     docsPath,
     title: values.title ?? values.project,
+    exclude: parseExclude(values.exclude),
   };
 }
 
@@ -162,9 +189,11 @@ export function sync(options) {
     rmSync(directory, { recursive: true, force: true });
     mkdirSync(directory, { recursive: true });
   }
-  const files = [...walk(options.source)];
+  const exclude = options.exclude ?? [];
+  const all = [...walk(options.source)];
+  const files = all.filter((file) => !isExcluded(file, exclude));
   const existing = new Set(files);
-  const counts = { pages: 0, images: 0, files: 0 };
+  const counts = { pages: 0, images: 0, files: 0, excluded: all.length - files.length };
   const base = `/${options.project}/docs`;
   const pages = [];
   for (const file of files) {
@@ -205,6 +234,7 @@ export function sync(options) {
     ref: options.ref,
     sha: options.sha,
     docsPath: options.docsPath,
+    exclude,
     base,
     contentDir: relative(options.out, contentDir).split(sep).join('/'),
     builtAt: new Date().toISOString(),
@@ -216,5 +246,6 @@ export function sync(options) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const result = sync(parseOptions(process.argv.slice(2)));
   const index = result.generatedIndex ? ' (index generated: no README at the docs root)' : '';
-  console.log(`synced ${result.pages} pages, ${result.images} images, ${result.files} files for ${result.build.repo}@${result.build.sha.slice(0, 7)} → ${result.build.base}${index}`);
+  const excluded = result.excluded > 0 ? `, ${result.excluded} excluded (${result.build.exclude.join(', ')})` : '';
+  console.log(`synced ${result.pages} pages, ${result.images} images, ${result.files} files${excluded} for ${result.build.repo}@${result.build.sha.slice(0, 7)} → ${result.build.base}${index}`);
 }

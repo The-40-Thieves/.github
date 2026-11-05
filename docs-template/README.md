@@ -28,6 +28,13 @@ named `<project>-docs` on the route `the40thieves.dev/<project>/docs*`.
 | any other file (schema, SQL, sample) | `/<project>/docs/<path>`, unchanged                                   |
 | a relative link to a page or file    | rewritten to the published URL                                        |
 | a relative link that leaves `docs/`  | rewritten to GitHub at the built commit (`blob`, or `raw` for images) |
+| `docs/superpowers/**`                | not published (see below)                                             |
+
+Paths named by the workflow input `docs-exclude` (comma-separated, a directory or a file under
+`docs-path`) are left out entirely: no page, no public file, no entry in the generated index. The
+default is `superpowers`, where the planning and spec files live; pass an empty string to publish
+everything, or a longer list to leave out more. Locally the same switch is `--exclude` on
+`scripts/sync-docs.mjs`.
 
 Every page's footer shows the source file, the commit it was built from and the build time, and
 links back to the project's page on the hub. Search is Pagefind, built with the site.
