@@ -1,0 +1,156 @@
+// Copies a repository's docs directory into this template so Starlight can build it:
+//   Markdown  → src/content/docs/<same path>, README.md as index.md, a title lifted from the
+//               first heading when the frontmatter has none, plus sourcePath and editUrl
+//   images    → src/content/docs (Astro optimises relative images) and public/ (direct links)
+//   anything else → public/<same path>, so links to schemas, SQL and samples keep working
+// and writes .docs-build.json (read by astro.config.mjs and the footer) and public/_headers.
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, posix, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
+
+import {
+  hasFrontmatterKey,
+  headersFile,
+  isImage,
+  isMarkdown,
+  plainTitle,
+  splitFrontmatter,
+  takeFirstHeading,
+  titleFromFileName,
+  yamlString,
+} from './lib.mjs';
+
+const SLUG = /^[a-z0-9][a-z0-9-]*$/;
+const SHA = /^[0-9a-f]{40}$/;
+const IGNORED_DIRECTORIES = new Set(['node_modules', '.git']);
+
+export function parseOptions(argv) {
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      source: { type: 'string' },
+      project: { type: 'string' },
+      repo: { type: 'string' },
+      ref: { type: 'string', default: 'main' },
+      sha: { type: 'string' },
+      'docs-path': { type: 'string', default: 'docs' },
+      title: { type: 'string' },
+      out: { type: 'string', default: '.' },
+    },
+  });
+  const missing = ['source', 'project', 'repo', 'sha'].filter((key) => !values[key]);
+  if (missing.length > 0) throw new Error(`missing --${missing.join(', --')}`);
+  if (!SLUG.test(values.project)) throw new Error(`project must be a lowercase slug, got '${values.project}'`);
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(values.repo)) throw new Error(`repo must be owner/name, got '${values.repo}'`);
+  if (!SHA.test(values.sha)) throw new Error('sha must be a 40-character commit hash');
+  const docsPath = values['docs-path'].replace(/^\.?\/+|\/+$/g, '');
+  if (docsPath === '' || docsPath.split('/').includes('..')) throw new Error(`docs-path must stay inside the repository, got '${values['docs-path']}'`);
+  return {
+    source: resolve(values.source),
+    out: resolve(values.out),
+    project: values.project,
+    repo: values.repo,
+    ref: values.ref,
+    sha: values.sha,
+    docsPath,
+    title: values.title ?? values.project,
+  };
+}
+
+function* walk(directory, root = directory) {
+  for (const name of readdirSync(directory).sort()) {
+    if (name.startsWith('.') || IGNORED_DIRECTORIES.has(name)) continue;
+    const full = join(directory, name);
+    if (statSync(full).isDirectory()) yield* walk(full, root);
+    else yield relative(root, full).split(sep).join('/');
+  }
+}
+
+/** The Markdown written to the content directory for one source file. */
+export function transformMarkdown(text, file, options) {
+  const { frontmatter, body } = splitFrontmatter(text);
+  const extra = [];
+  let nextBody = body;
+  if (!hasFrontmatterKey(frontmatter, 'title')) {
+    const heading = takeFirstHeading(body);
+    const title = heading ? plainTitle(heading.title) : titleFromFileName(file);
+    if (heading) nextBody = heading.body;
+    extra.push(`title: ${yamlString(title)}`);
+  }
+  const sourcePath = posix.join(options.docsPath, file);
+  if (!hasFrontmatterKey(frontmatter, 'sourcePath')) extra.push(`sourcePath: ${yamlString(sourcePath)}`);
+  if (!hasFrontmatterKey(frontmatter, 'editUrl')) {
+    extra.push(`editUrl: ${yamlString(`https://github.com/${options.repo}/edit/${options.ref}/${sourcePath}`)}`);
+  }
+  const block = [frontmatter, ...extra].filter((line) => line !== null && line !== '').join('\n');
+  return `---\n${block}\n---\n${nextBody}`;
+}
+
+/** Where a docs-relative Markdown file lands in the content directory. */
+export function contentTarget(file, existing) {
+  const directory = posix.dirname(file);
+  const name = posix.basename(file);
+  if (/^readme\.(md|mdx|markdown)$/i.test(name)) {
+    const index = posix.join(directory, 'index.md');
+    if (!existing.has(index)) return index;
+  }
+  return file;
+}
+
+export function sync(options) {
+  if (!existsSync(options.source) || !statSync(options.source).isDirectory()) {
+    throw new Error(`docs directory not found: ${options.source}`);
+  }
+  const contentDir = join(options.out, 'src', 'content', 'docs');
+  const publicDir = join(options.out, 'public');
+  for (const directory of [contentDir, publicDir]) {
+    rmSync(directory, { recursive: true, force: true });
+    mkdirSync(directory, { recursive: true });
+  }
+  const files = [...walk(options.source)];
+  const existing = new Set(files);
+  const counts = { pages: 0, images: 0, files: 0 };
+  for (const file of files) {
+    const from = join(options.source, file);
+    if (isMarkdown(file)) {
+      const target = join(contentDir, contentTarget(file, existing));
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, transformMarkdown(readFileSync(from, 'utf8'), file, options));
+      counts.pages += 1;
+      continue;
+    }
+    const pub = join(publicDir, file);
+    mkdirSync(dirname(pub), { recursive: true });
+    cpSync(from, pub);
+    if (isImage(file)) {
+      const inContent = join(contentDir, file);
+      mkdirSync(dirname(inContent), { recursive: true });
+      cpSync(from, inContent);
+      counts.images += 1;
+    } else {
+      counts.files += 1;
+    }
+  }
+  if (counts.pages === 0) throw new Error(`no Markdown found under ${options.source}`);
+  const base = `/${options.project}/docs`;
+  writeFileSync(join(publicDir, '_headers'), headersFile(options.project, base));
+  const build = {
+    project: options.project,
+    title: options.title,
+    repo: options.repo,
+    ref: options.ref,
+    sha: options.sha,
+    docsPath: options.docsPath,
+    base,
+    contentDir: relative(options.out, contentDir).split(sep).join('/'),
+    builtAt: new Date().toISOString(),
+  };
+  writeFileSync(join(options.out, '.docs-build.json'), JSON.stringify(build, null, 2) + '\n');
+  return { ...counts, build };
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const result = sync(parseOptions(process.argv.slice(2)));
+  console.log(`synced ${result.pages} pages, ${result.images} images, ${result.files} files for ${result.build.repo}@${result.build.sha.slice(0, 7)} → ${result.build.base}`);
+}

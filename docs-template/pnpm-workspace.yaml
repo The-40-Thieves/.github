@@ -1,0 +1,16 @@
+# Standalone project (no workspace packages); this file carries the pnpm settings the hub repo
+# uses, so a docs build installs under the same supply-chain rules.
+
+# Only install versions published at least seven days ago (minutes).
+minimumReleaseAge: 10080
+blockExoticSubdeps: true
+trustPolicy: no-downgrade
+
+# No dependency may run install scripts unless listed here. esbuild and workerd download their
+# platform binary in postinstall; sharp's install script only checks its prebuilt binary.
+allowBuilds:
+  esbuild: true
+  workerd: true
+  sharp: true
+
+savePrefix: ''

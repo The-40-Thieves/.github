@@ -1,0 +1,68 @@
+# The docs template's own checks: unit tests, then a full build of the fixture docs tree with the
+# same steps the reusable workflow runs for a project, minus the deploy.
+name: docs-template
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs-template/**
+      - .github/workflows/docs-template-ci.yml
+      - .github/workflows/docs-deploy.yml
+  pull_request:
+    paths:
+      - docs-template/**
+      - .github/workflows/docs-template-ci.yml
+      - .github/workflows/docs-deploy.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs-template
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: docs-template/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: docs-template/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - name: Sync the fixture docs (as a project would be synced)
+        run: pnpm fixture
+      - run: pnpm build
+      - run: pnpm check-dist
+      - run: pnpm worker-config
+      - name: The fixture's links resolve as intended
+        run: |
+          grep -q 'href="/fixture/docs/guide/one/"' dist/index.html
+          grep -q 'href="/fixture/docs/guide/"' dist/index.html
+          grep -q 'href="/fixture/docs/data/sample.json"' dist/index.html
+          grep -q 'href="https://github.com/The-40-Thieves/.github/blob/0000000000000000000000000000000000000000/docs-template/fixture/README.md"' dist/index.html
+          grep -q 'href="/fixture/docs/guide/one/#second-heading"' dist/index.html
+          test -f dist/data/sample.json
+          test -f dist/guide/index.html
+          grep -q 'Page one' dist/guide/one/index.html
+          grep -q '<img' dist/guide/one/index.html
+
+  build-as-caller:
+    name: build-as-caller
+    # The reusable workflow against this repository's own fixture, deploy off: proves the caller
+    # contract (checkout of the template, pnpm cache paths, inputs) before a project uses it.
+    uses: ./.github/workflows/docs-deploy.yml
+    with:
+      project: fixture
+      docs-path: docs-template/fixture/docs
+      title: Fixture
+      deploy: false

@@ -1,0 +1,7 @@
+# Everything the sync and build steps generate. The committed template is only the code.
+node_modules/
+dist/
+.astro/
+public/
+src/content/docs/
+wrangler.jsonc
