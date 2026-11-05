@@ -5,3 +5,4 @@ dist/
 public/
 src/content/docs/
 wrangler.jsonc
+.wrangler/
