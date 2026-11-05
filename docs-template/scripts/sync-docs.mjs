@@ -4,7 +4,7 @@
 //               a docs tree without a README gets a generated index that lists every page
 //   images    → src/content/docs (Astro optimises relative images) and public/ (direct links)
 //   anything else → public/<same path>, so links to schemas, SQL and samples keep working
-// and writes .docs-build.json (read by astro.config.mjs and the footer) and public/_headers.
+// and writes .docs-build.json (read by astro.config.mjs, the footer and the Worker config).
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,7 +12,6 @@ import { parseArgs } from 'node:util';
 
 import {
   hasFrontmatterKey,
-  headersFile,
   isImage,
   isMarkdown,
   pageUrl,
@@ -199,7 +198,6 @@ export function sync(options) {
     counts.pages += 1;
     generated = true;
   }
-  writeFileSync(join(publicDir, '_headers'), headersFile(options.project, base));
   const build = {
     project: options.project,
     title: options.title,
