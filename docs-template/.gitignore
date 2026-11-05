@@ -6,3 +6,4 @@ public/
 src/content/docs/
 wrangler.jsonc
 .wrangler/
+.docs-build.json

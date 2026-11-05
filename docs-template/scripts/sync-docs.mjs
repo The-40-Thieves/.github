@@ -1,6 +1,7 @@
 // Copies a repository's docs directory into this template so Starlight can build it:
 //   Markdown  → src/content/docs/<same path>, README.md as index.md, a title lifted from the
-//               first heading when the frontmatter has none, plus sourcePath and editUrl
+//               first heading when the frontmatter has none, plus sourcePath and editUrl;
+//               a docs tree without a README gets a generated index that lists every page
 //   images    → src/content/docs (Astro optimises relative images) and public/ (direct links)
 //   anything else → public/<same path>, so links to schemas, SQL and samples keep working
 // and writes .docs-build.json (read by astro.config.mjs and the footer) and public/_headers.
@@ -14,6 +15,7 @@ import {
   headersFile,
   isImage,
   isMarkdown,
+  pageUrl,
   plainTitle,
   splitFrontmatter,
   takeFirstHeading,
@@ -67,6 +69,25 @@ function* walk(directory, root = directory) {
   }
 }
 
+/** The title a page gets: its frontmatter title, else its first heading, else its file name. */
+export function pageTitle(text, file) {
+  const { frontmatter, body } = splitFrontmatter(text);
+  const declared = frontmatter?.match(/^title:[ \t]*(.+?)[ \t]*$/m);
+  if (declared) {
+    const raw = declared[1];
+    if (/^".*"$/.test(raw)) {
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return raw.slice(1, -1);
+      }
+    }
+    return /^'.*'$/.test(raw) ? raw.slice(1, -1).replaceAll("''", "'") : raw;
+  }
+  const heading = takeFirstHeading(body);
+  return heading ? plainTitle(heading.title) : titleFromFileName(file);
+}
+
 /** The Markdown written to the content directory for one source file. */
 export function transformMarkdown(text, file, options) {
   const { frontmatter, body } = splitFrontmatter(text);
@@ -98,6 +119,40 @@ export function contentTarget(file, existing) {
   return file;
 }
 
+/**
+ * The index page for a docs tree that has no README at its root: the title, where the docs come
+ * from, and every page grouped by its top-level directory. Links are absolute under the base, the
+ * form the link validator accepts.
+ */
+export function generatedIndex(options, base, pages) {
+  const treeUrl = `https://github.com/${options.repo}/tree/${options.ref}/${options.docsPath}`;
+  const lines = [
+    '---',
+    `title: ${yamlString(options.title)}`,
+    'editUrl: false',
+    '---',
+    '',
+    `Documentation for ${options.title}, published from [\`${options.docsPath}\`](${treeUrl}) in ${options.repo}.`,
+    '',
+  ];
+  const groups = new Map();
+  for (const page of pages) {
+    const top = page.file.includes('/') ? page.file.split('/')[0] : '';
+    if (!groups.has(top)) groups.set(top, []);
+    groups.get(top).push(page);
+  }
+  const order = [...groups.keys()].sort((a, b) => (a === '' ? -1 : b === '' ? 1 : a.localeCompare(b)));
+  for (const top of order) {
+    if (top !== '') lines.push(`## ${titleFromFileName(top)}`, '');
+    for (const page of groups.get(top)) {
+      const label = page.title.replaceAll('[', '\\[').replaceAll(']', '\\]');
+      lines.push(`- [${label}](${page.url})`);
+    }
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
 export function sync(options) {
   if (!existsSync(options.source) || !statSync(options.source).isDirectory()) {
     throw new Error(`docs directory not found: ${options.source}`);
@@ -111,12 +166,16 @@ export function sync(options) {
   const files = [...walk(options.source)];
   const existing = new Set(files);
   const counts = { pages: 0, images: 0, files: 0 };
+  const base = `/${options.project}/docs`;
+  const pages = [];
   for (const file of files) {
     const from = join(options.source, file);
     if (isMarkdown(file)) {
+      const text = readFileSync(from, 'utf8');
       const target = join(contentDir, contentTarget(file, existing));
       mkdirSync(dirname(target), { recursive: true });
-      writeFileSync(target, transformMarkdown(readFileSync(from, 'utf8'), file, options));
+      writeFileSync(target, transformMarkdown(text, file, options));
+      pages.push({ file, title: pageTitle(text, file), url: pageUrl(base, file) });
       counts.pages += 1;
       continue;
     }
@@ -133,7 +192,13 @@ export function sync(options) {
     }
   }
   if (counts.pages === 0) throw new Error(`no Markdown found under ${options.source}`);
-  const base = `/${options.project}/docs`;
+  const indexTarget = join(contentDir, 'index.md');
+  let generated = false;
+  if (!existsSync(indexTarget) && !existsSync(join(contentDir, 'index.mdx'))) {
+    writeFileSync(indexTarget, generatedIndex(options, base, pages));
+    counts.pages += 1;
+    generated = true;
+  }
   writeFileSync(join(publicDir, '_headers'), headersFile(options.project, base));
   const build = {
     project: options.project,
@@ -147,10 +212,11 @@ export function sync(options) {
     builtAt: new Date().toISOString(),
   };
   writeFileSync(join(options.out, '.docs-build.json'), JSON.stringify(build, null, 2) + '\n');
-  return { ...counts, build };
+  return { ...counts, generatedIndex: generated, build };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const result = sync(parseOptions(process.argv.slice(2)));
-  console.log(`synced ${result.pages} pages, ${result.images} images, ${result.files} files for ${result.build.repo}@${result.build.sha.slice(0, 7)} → ${result.build.base}`);
+  const index = result.generatedIndex ? ' (index generated: no README at the docs root)' : '';
+  console.log(`synced ${result.pages} pages, ${result.images} images, ${result.files} files for ${result.build.repo}@${result.build.sha.slice(0, 7)} → ${result.build.base}${index}`);
 }

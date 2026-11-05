@@ -8,7 +8,8 @@ named `<project>-docs` on the route `the40thieves.dev/<project>/docs*`.
 
 ## What a project needs
 
-1. A `docs/` directory of Markdown (any layout; `README.md` becomes the index of its directory).
+1. A `docs/` directory of Markdown (any layout; `README.md` becomes the index of its directory;
+   a tree without a root `README.md` gets a generated index listing every page by directory).
    Pages need no frontmatter: the first level-one heading becomes the title. Frontmatter, when
    present, wins.
 2. `.github/workflows/docs.yml` calling the reusable workflow (example at the top of
