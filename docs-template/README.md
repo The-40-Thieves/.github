@@ -34,8 +34,10 @@ links back to the project's page on the hub. Search is Pagefind, built with the 
 
 ## Response headers
 
-`public/_headers` carries the hub's static header set (HSTS, nosniff, referrer policy, frame
-denial, permissions policy) scoped to `/<project>/docs/*`, plus `X-Served-By: <project>-docs`,
+The site is built under `dist/<project>/docs/` so the asset paths mirror the route (a non-root
+`assets.base_path` is not enabled on the account); `pnpm worker-config` writes `wrangler.jsonc`
+and `dist/_headers`. The header file carries the hub's static header set (HSTS, nosniff, referrer
+policy, frame denial, permissions policy) scoped to `/<project>/docs/*`, plus `X-Served-By: <project>-docs`,
 which the post-deploy check uses to prove the docs route answers from this Worker while
 `/<project>/` still answers from the hub. The values are a copy of
 `security/headers.policy.json` in the hub repository; change both together.

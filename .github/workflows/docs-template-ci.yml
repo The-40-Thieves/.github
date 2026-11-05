@@ -42,19 +42,22 @@ jobs:
       - name: Sync the fixture docs (as a project would be synced)
         run: pnpm fixture
       - run: pnpm build
-      - run: pnpm check-dist
       - run: pnpm worker-config
+      - run: pnpm check-dist
       - name: The fixture's links resolve as intended
+        # The site sits under dist/fixture/docs/, mirroring the route; _headers at the dist root.
         run: |
-          grep -q 'href="/fixture/docs/guide/one/"' dist/index.html
-          grep -q 'href="/fixture/docs/guide/"' dist/index.html
-          grep -q 'href="/fixture/docs/data/sample.json"' dist/index.html
-          grep -q 'href="https://github.com/The-40-Thieves/.github/blob/0000000000000000000000000000000000000000/docs-template/fixture/README.md"' dist/index.html
-          grep -q 'href="/fixture/docs/guide/one/#second-heading"' dist/index.html
-          test -f dist/data/sample.json
-          test -f dist/guide/index.html
-          grep -q 'Page one' dist/guide/one/index.html
-          grep -q '<img' dist/guide/one/index.html
+          site=dist/fixture/docs
+          grep -q 'href="/fixture/docs/guide/one/"' $site/index.html
+          grep -q 'href="/fixture/docs/guide/"' $site/index.html
+          grep -q 'href="/fixture/docs/data/sample.json"' $site/index.html
+          grep -q 'href="https://github.com/The-40-Thieves/.github/blob/0000000000000000000000000000000000000000/docs-template/fixture/README.md"' $site/index.html
+          grep -q 'href="/fixture/docs/guide/one/#second-heading"' $site/index.html
+          test -f $site/data/sample.json
+          test -f $site/guide/index.html
+          test -f dist/_headers
+          grep -q 'Page one' $site/guide/one/index.html
+          grep -q '<img' $site/guide/one/index.html
 
   build-as-caller:
     name: build-as-caller

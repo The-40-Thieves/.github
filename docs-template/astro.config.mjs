@@ -12,6 +12,10 @@ const build = JSON.parse(readFileSync(new URL('./.docs-build.json', import.meta.
 export default defineConfig({
   site: 'https://the40thieves.dev',
   base: build.base,
+  // The Worker serves dist/ as plain static assets with no base_path (a non-root base_path is
+  // not enabled on the account), so the site is written under dist/<project>/docs/ to mirror
+  // the route. _headers is written at the dist root by scripts/wrangler-config.mjs.
+  outDir: `./dist${build.base}`,
   trailingSlash: 'always',
   markdown: {
     remarkPlugins: [[remarkRepoLinks, build]],

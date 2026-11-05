@@ -123,12 +123,12 @@ jobs:
       - name: Build
         working-directory: ${{ env.TEMPLATE }}
         run: pnpm build
+      - name: Write the Worker configuration and the response headers
+        working-directory: ${{ env.TEMPLATE }}
+        run: pnpm worker-config
       - name: Check the build output
         working-directory: ${{ env.TEMPLATE }}
         run: pnpm check-dist
-      - name: Write the Worker configuration
-        working-directory: ${{ env.TEMPLATE }}
-        run: pnpm worker-config
       - name: Deploy the docs Worker
         if: ${{ inputs.deploy }}
         uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
