@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { compile } from '@mdx-js/mdx';
+import remarkMath from 'remark-math';
 
 import {
   hasFrontmatterKey,
@@ -161,9 +162,16 @@ function outsideFences(body, fn) {
 
 const CODE_SPAN = '`+[^`\\n]*`+';
 
-/** Apply `fn` to the parts of a text that are not inside an inline code span. */
+// LaTeX math, which Mintlify renders with KaTeX: a `$$ … $$` block without a blank line in it, or
+// a `$…$` span on one line. The span follows a strict rule, so that prices and `$VAR` stay prose:
+// no space after the opening `$`, none before the closing one, no letter or digit right outside
+// either, and no backtick inside.
+const MATH =
+  '(?<!\\\\)\\$\\$(?:(?!\\n[ \\t]*\\n)[\\s\\S])+?\\$\\$|(?<![\\\\$\\w])\\$(?=[^\\s$])(?:\\\\.|[^$\\\\\\n`])+?(?<=\\S)\\$(?![\\w$])';
+
+/** Apply `fn` to the parts of a text that are not inside an inline code span or math. */
 function outsideCodeSpans(text, fn) {
-  const parts = text.split(new RegExp(`(${CODE_SPAN})`));
+  const parts = text.split(new RegExp(`(${CODE_SPAN}|${MATH})`));
   return parts.map((part, i) => (i % 2 === 1 ? part : fn(part))).join('');
 }
 
@@ -200,21 +208,28 @@ export function rewriteLinks(body, file, site) {
 
 /**
  * Escape prose so MDX reads it as text: braces, angle brackets that are not known HTML tags,
- * autolinks and HTML comments. Code fences and inline code spans are left alone.
+ * autolinks and HTML comments. Code fences, inline code spans, math and characters the author
+ * already escaped with a backslash are left alone.
  */
 export function escapeMdx(body) {
   const comments = new RegExp(`(${CODE_SPAN})|<!--[\\s\\S]*?-->`, 'g');
   return outsideFences(body, (block) =>
     outsideCodeSpans(block.replace(comments, (all, code) => code ?? ''), (text) =>
-      text
-        .replace(/<((?:https?:\/\/|mailto:)[^>\s]+)>/g, (_, url) => `[${url.replace(/^mailto:/, '')}](${url})`)
-        .replace(/<(\/?)([A-Za-z][A-Za-z0-9-]*)([^<>]*)>|[<{}]/g, (match, close, name, attributes) => {
+      text.replace(
+        /\\[\s\S]|<((?:https?:\/\/|mailto:)[^>\s]+)>|<(\/?)([A-Za-z][A-Za-z0-9-]*)([^<>]*)>|[<{}]/g,
+        (match, url, close, name, attributes) => {
+          if (match[0] === '\\') return match;
+          if (url !== undefined) {
+            const escaped = url.replace(/[{}]/g, '\\$&');
+            return `[${escaped.replace(/^mailto:/, '')}](${escaped})`;
+          }
           if (name === undefined) return `\\${match}`;
           const tag = name.toLowerCase();
           if (!HTML_TAGS.has(tag)) return `\\<${close}${name}${attributes.replace(/[{}]/g, '\\$&')}>`;
           if (VOID_TAGS.has(tag) && close === '' && !attributes.trimEnd().endsWith('/')) return `<${tag}${attributes.trimEnd()} />`;
           return `<${close}${tag}${attributes}>`;
-        }),
+        },
+      ),
     ),
   );
 }
@@ -257,10 +272,13 @@ export function generatedIndex(options, groups) {
   return lines.join('\n');
 }
 
-/** Fail on a page MDX cannot parse; Mintlify would refuse the whole site for it. */
+/**
+ * Fail on a page MDX cannot parse; Mintlify would refuse the whole site for it. Math is read the
+ * way Mintlify reads it, so its braces are not taken for expressions.
+ */
 export async function checkMdx(text, file) {
   try {
-    await compile(splitFrontmatter(text).body, { format: 'mdx' });
+    await compile(splitFrontmatter(text).body, { format: 'mdx', remarkPlugins: [remarkMath] });
   } catch (error) {
     throw new Error(`${file} does not parse as MDX: ${error.message}`);
   }

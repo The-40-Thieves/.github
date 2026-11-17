@@ -68,6 +68,7 @@ pnpm check
 pnpm config         # writes wrangler.jsonc
 pnpm exec wrangler dev   # serves the site at http://localhost:8787/<project>/docs/
 ```
+
 ## Mintlify output (docs.the40thieves.dev)
 
 `scripts/build-mintlify.mjs` assembles the same `docs/` directory into a Mintlify site instead:
@@ -92,7 +93,17 @@ its `docs.base.json`. Until then the branch exists but the hub does not serve it
 
 Mintlify parses `.md` as MDX, so the build escapes prose that MDX would read as JSX or as an
 expression (braces, angle brackets that are not HTML tags, autolinks) and drops HTML comments.
-Code fences and inline code are left as written. Navigation is one group per top-level directory.
+Code fences, inline code, LaTeX math (which Mintlify renders) and characters already escaped with
+a backslash are left as written. Math is a `$$ … $$` block with no blank line in it, or a `$…$`
+span on one line; a block with a blank line in it is escaped as prose. A `$…$` span counts as
+math only when all of these hold, so that prices and `$VAR` stay prose:
+
+- no space follows the opening `$` and none precedes the closing one;
+- no letter, digit or `$` sits right before the opening `$` or right after the closing one
+  (`$x$foo` is prose);
+- the span holds no backtick.
+
+Navigation is one group per top-level directory.
 
 The build fails when a page still does not parse as MDX, or when two sources publish to one path.
 It does not carry the per-page provenance footer or the response headers of the Starlight site;
