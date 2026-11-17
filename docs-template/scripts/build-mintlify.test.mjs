@@ -96,6 +96,29 @@ test('escapeMdx escapes prose and leaves code, known HTML and fences alone', asy
   await assert.rejects(checkMdx(source, 'raw.md'), /raw\.md does not parse as MDX/);
 });
 
+test('escapeMdx leaves math and already escaped characters as written', async () => {
+  const source = [
+    'A matrix $\\mathbf{H}_8 = \\frac{1}{\\sqrt{8}}$ and a set $i \\in \\{0..7\\}$, then {prose}.',
+    '',
+    '$$g_i = 10^{\\frac{-3 \\cdot \\tau_i}{T_{60}}}$$',
+    '',
+    '$$',
+    'x = {a \\over b}',
+    '$$',
+    '',
+    'It costs $5 for {one} and $10 for {two}; `$HOME/{x}` is code.',
+    'Escaped by the author: \\{kept\\} and \\<T>, then a raw {brace}.',
+  ].join('\n');
+  const escaped = escapeMdx(source);
+  assert.match(escaped, /\$\\mathbf\{H\}_8 = \\frac\{1\}\{\\sqrt\{8\}\}\$/);
+  assert.match(escaped, /\$i \\in \\\{0\.\.7\\\}\$, then \\\{prose\\\}\./);
+  assert.match(escaped, /\$\$g_i = 10\^\{\\frac\{-3 \\cdot \\tau_i\}\{T_\{60\}\}\}\$\$/);
+  assert.match(escaped, /\$\$\nx = \{a \\over b\}\n\$\$/);
+  assert.match(escaped, /costs \$5 for \\\{one\\\} and \$10 for \\\{two\\\}; `\$HOME\/\{x\}` is code\./);
+  assert.match(escaped, /author: \\\{kept\\\} and \\<T>, then a raw \\\{brace\\\}\./);
+  await checkMdx(escaped, 'math.md');
+});
+
 test('build writes pages, navigation and a generated index, and leaves excluded paths out', async () => {
   const tree = docsTree({
     'embedding.md': '# Embedding `Demo`\n\nSee [the contract](contract/README.md) and [a schema](contract/v1.schema.json).\n',
