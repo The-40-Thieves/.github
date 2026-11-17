@@ -96,7 +96,11 @@ jobs:
 
   build-mintlify-as-caller:
     name: build-mintlify-as-caller
-    # The Mintlify reusable workflow against the same fixture, publish off.
+    # The Mintlify reusable workflow against the same fixture, publish off. The called workflow's
+    # publish job declares contents: write, and a caller must grant at least what a nested job
+    # declares even when that job is skipped; nothing is written here.
+    permissions:
+      contents: write
     uses: ./.github/workflows/docs-mintlify.yml
     with:
       project: fixture
