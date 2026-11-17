@@ -1,0 +1,210 @@
+# Reusable workflow: assemble a project's docs/ directory into a Mintlify site and publish it to
+# the project's `docs-site` branch. The docs hub (suavecito585/docs) pulls that branch in under
+# https://docs.the40thieves.dev/<project>/ with mintlify/multirepo-action.
+#
+# A project calls it from .github/workflows/docs.yml:
+#
+#   name: docs
+#   on:
+#     push:
+#       branches: [main]
+#       paths: [docs/**, .github/workflows/docs.yml]
+#     pull_request:
+#       paths: [docs/**, .github/workflows/docs.yml]
+#     workflow_dispatch:
+#   permissions:
+#     contents: read
+#   jobs:
+#     docs:
+#       permissions:
+#         contents: write # the publish job pushes the docs-site branch
+#       uses: The-40-Thieves/.github/.github/workflows/docs-mintlify.yml@<commit sha>
+#       with:
+#         project: my-project
+#         publish: ${{ github.event_name != 'pull_request' }}
+#       secrets:
+#         docs-hub-dispatch-token: ${{ secrets.DOCS_HUB_DISPATCH_TOKEN }}
+#
+# The project must also be listed in the hub's .github/mintlify-multirepo.yml (ref: docs-site).
+# Without the dispatch token the hub picks a publish up on its hourly sync.
+name: docs-mintlify
+
+on:
+  workflow_call:
+    inputs:
+      project:
+        description: The project slug; the docs are served at https://docs.the40thieves.dev/<project>/
+        required: true
+        type: string
+      docs-path:
+        description: Repository-relative directory holding the docs sources
+        required: false
+        default: docs
+        type: string
+      title:
+        description: Site title; defaults to the project slug
+        required: false
+        default: ''
+        type: string
+      description:
+        description: One-line site description; a default is written when empty
+        required: false
+        default: ''
+        type: string
+      docs-exclude:
+        description: >-
+          Paths under docs-path to leave out of the site, comma-separated (a directory or a file).
+          Defaults to `superpowers`, the planning directory; pass an empty string to publish everything.
+        required: false
+        default: superpowers
+        type: string
+      publish:
+        description: Publish to the docs-site branch after the build (set false to only build and check)
+        required: false
+        default: true
+        type: boolean
+    secrets:
+      docs-hub-dispatch-token:
+        description: Fine-grained token with Contents read and write on the docs hub repository, to start its sync
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  TEMPLATE: .docs-template/docs-template
+
+jobs:
+  build:
+    name: build docs (${{ inputs.project }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate inputs
+        env:
+          PROJECT: ${{ inputs.project }}
+          DOCS_PATH: ${{ inputs.docs-path }}
+          DOCS_EXCLUDE: ${{ inputs.docs-exclude }}
+        run: |
+          case "$PROJECT" in
+            *[!a-z0-9-]*|'') echo "project must be a lowercase slug, got '$PROJECT'"; exit 1 ;;
+          esac
+          case "$DOCS_PATH" in
+            ''|/*|*..*) echo "docs-path must be a repository-relative directory, got '$DOCS_PATH'"; exit 1 ;;
+          esac
+          case "$DOCS_EXCLUDE" in
+            /*|*..*) echo "docs-exclude must name paths under docs-path, got '$DOCS_EXCLUDE'"; exit 1 ;;
+          esac
+      - name: Check out the project
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out the docs template at the version of this workflow
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: The-40-Thieves/.github
+          ref: ${{ github.job_workflow_sha }}
+          path: .docs-template
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: ${{ env.TEMPLATE }}/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: ${{ env.TEMPLATE }}/pnpm-lock.yaml
+      - name: Install the template
+        working-directory: ${{ env.TEMPLATE }}
+        run: pnpm install --frozen-lockfile
+      # The build fails on a page MDX cannot parse and on two sources that publish to one path.
+      # Links to pages are only ever written for pages that exist; any other relative link points
+      # at GitHub at this commit.
+      - name: Build the Mintlify site
+        working-directory: ${{ env.TEMPLATE }}
+        env:
+          PROJECT: ${{ inputs.project }}
+          DOCS_PATH: ${{ inputs.docs-path }}
+          DOCS_EXCLUDE: ${{ inputs.docs-exclude }}
+          TITLE: ${{ inputs.title }}
+          DESCRIPTION: ${{ inputs.description }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          OUT: ${{ runner.temp }}/docs-site
+        run: |
+          node scripts/build-mintlify.mjs \
+            --source "$GITHUB_WORKSPACE/$DOCS_PATH" \
+            --project "$PROJECT" \
+            --docs-path "$DOCS_PATH" \
+            --exclude "$DOCS_EXCLUDE" \
+            --title "${TITLE:-$PROJECT}" \
+            --description "$DESCRIPTION" \
+            --repo "$REPO" \
+            --sha "$SHA" \
+            --out "$OUT"
+      - name: Upload the assembled site
+        if: ${{ inputs.publish }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docs-site-${{ inputs.project }}
+          path: ${{ runner.temp }}/docs-site
+          include-hidden-files: false
+          retention-days: 7
+
+  # The docs-site branch holds nothing but the assembled site, one commit per publish, never
+  # force-pushed.
+  publish:
+    name: publish to docs-site (${{ inputs.project }})
+    if: ${{ inputs.publish }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: docs-site-${{ inputs.project }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: docs-site-${{ inputs.project }}
+          path: ${{ runner.temp }}/dist
+      - name: Commit the site to docs-site
+        id: commit
+        env:
+          SITE: ${{ runner.temp }}/site
+          DIST: ${{ runner.temp }}/dist
+        run: |
+          set -euo pipefail
+          test -f "$DIST/docs.json"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin docs-site >/dev/null; then
+            git fetch --depth=1 origin docs-site
+            git worktree add -B docs-site "$SITE" FETCH_HEAD
+          else
+            git worktree add --orphan -b docs-site "$SITE"
+          fi
+          cd "$SITE"
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -R "$DIST/." .
+          git add -A
+          if git diff --cached --quiet; then
+            echo "docs-site already matches ${GITHUB_SHA}"
+            exit 0
+          fi
+          git commit -s -m "docs-site: publish ${GITHUB_SHA::12}"
+          git push origin docs-site
+          echo "published=true" >> "$GITHUB_OUTPUT"
+      - name: Tell the docs hub to sync
+        if: steps.commit.outputs.published == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.docs-hub-dispatch-token }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "No dispatch token; the docs hub syncs on its hourly schedule"
+            exit 0
+          fi
+          gh api --method POST repos/suavecito585/docs/dispatches -f event_type=docs-updated

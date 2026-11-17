@@ -1,6 +1,7 @@
 # Everything the sync and build steps generate. The committed template is only the code.
 node_modules/
 dist/
+dist-mintlify/
 .astro/
 public/
 src/content/docs/

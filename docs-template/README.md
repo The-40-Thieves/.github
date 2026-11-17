@@ -68,3 +68,33 @@ pnpm check
 pnpm config         # writes wrangler.jsonc
 pnpm exec wrangler dev   # serves the site at http://localhost:8787/<project>/docs/
 ```
+## Mintlify output (docs.the40thieves.dev)
+
+`scripts/build-mintlify.mjs` assembles the same `docs/` directory into a Mintlify site instead:
+a `docs.json` and its pages, with no Starlight build. The reusable workflow
+`.github/workflows/docs-mintlify.yml` runs it and commits the result to the project's `docs-site`
+branch; the docs hub pulls that branch in under `https://docs.the40thieves.dev/<project>/`. A
+project uses one workflow or the other, not both.
+
+| Source                                | Published as                                                |
+| ------------------------------------- | ----------------------------------------------------------- |
+| `docs/a/b.md`                         | `/<project>/a/b` (same path as under `/<project>/docs/`)    |
+| `docs/a/README.md`                    | `/<project>/a`                                              |
+| an image inside `docs/`               | copied next to the pages                                    |
+| any other file (schema, SQL, sample)  | not copied; links to it point at GitHub at the built commit |
+| a relative link to a page             | rewritten to the page's URL                                 |
+| a relative link that leaves `docs/`   | rewritten to GitHub at the built commit                     |
+| `docs/superpowers/**` and `--exclude` | not published                                               |
+
+Mintlify parses `.md` as MDX, so the build escapes prose that MDX would read as JSX or as an
+expression (braces, angle brackets that are not HTML tags, autolinks) and drops HTML comments.
+Code fences and inline code are left as written. Navigation is one group per top-level directory.
+
+The build fails when a page still does not parse as MDX, or when two sources publish to one path.
+It does not carry the per-page provenance footer or the response headers of the Starlight site;
+Mintlify serves the pages.
+
+```sh
+pnpm fixture-mintlify   # or: node scripts/build-mintlify.mjs --source ../some-repo/docs --project x --repo The-40-Thieves/x --sha <40 hex>
+# the site is in dist-mintlify/; preview it there with `mint dev`
+```
