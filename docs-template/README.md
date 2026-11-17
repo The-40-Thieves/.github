@@ -93,9 +93,10 @@ its `docs.base.json`. Until then the branch exists but the hub does not serve it
 
 Mintlify parses `.md` as MDX, so the build escapes prose that MDX would read as JSX or as an
 expression (braces, angle brackets that are not HTML tags, autolinks) and drops HTML comments.
-Code fences, inline code, LaTeX math (`$…$` on one line and `$$ … $$` blocks, which Mintlify
-renders) and characters already escaped with a backslash are left as written. A `$…$` span counts
-as math only when no space follows the opening `$` or precedes the closing one, so prices stay
+Code fences, inline code, LaTeX math (which Mintlify renders) and characters already escaped with
+a backslash are left as written. Math is a `$$ … $$` block with no blank line in it, or a `$…$`
+span on one line; a block with a blank line in it is escaped as prose. A `$…$` span counts as
+math only when no space follows the opening `$` or precedes the closing one, so prices stay
 prose. Navigation is one group per top-level directory.
 
 The build fails when a page still does not parse as MDX, or when two sources publish to one path.

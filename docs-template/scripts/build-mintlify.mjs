@@ -215,16 +215,21 @@ export function escapeMdx(body) {
   const comments = new RegExp(`(${CODE_SPAN})|<!--[\\s\\S]*?-->`, 'g');
   return outsideFences(body, (block) =>
     outsideCodeSpans(block.replace(comments, (all, code) => code ?? ''), (text) =>
-      text
-        .replace(/<((?:https?:\/\/|mailto:)[^>\s]+)>/g, (_, url) => `[${url.replace(/^mailto:/, '')}](${url})`)
-        .replace(/\\[\s\S]|<(\/?)([A-Za-z][A-Za-z0-9-]*)([^<>]*)>|[<{}]/g, (match, close, name, attributes) => {
+      text.replace(
+        /\\[\s\S]|<((?:https?:\/\/|mailto:)[^>\s]+)>|<(\/?)([A-Za-z][A-Za-z0-9-]*)([^<>]*)>|[<{}]/g,
+        (match, url, close, name, attributes) => {
           if (match[0] === '\\') return match;
+          if (url !== undefined) {
+            const escaped = url.replace(/[{}]/g, '\\$&');
+            return `[${escaped.replace(/^mailto:/, '')}](${escaped})`;
+          }
           if (name === undefined) return `\\${match}`;
           const tag = name.toLowerCase();
           if (!HTML_TAGS.has(tag)) return `\\<${close}${name}${attributes.replace(/[{}]/g, '\\$&')}>`;
           if (VOID_TAGS.has(tag) && close === '' && !attributes.trimEnd().endsWith('/')) return `<${tag}${attributes.trimEnd()} />`;
           return `<${close}${tag}${attributes}>`;
-        }),
+        },
+      ),
     ),
   );
 }

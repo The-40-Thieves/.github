@@ -108,6 +108,7 @@ test('escapeMdx leaves math and already escaped characters as written', async ()
     '',
     'It costs $5 for {one} and $10 for {two}; `$HOME/{x}` is code.',
     'Escaped by the author: \\{kept\\} and \\<T>, then a raw {brace}.',
+    'An escaped autolink \\<https://example.com/a> and a real one <https://example.com/{b}>.',
   ].join('\n');
   const escaped = escapeMdx(source);
   assert.match(escaped, /\$\\mathbf\{H\}_8 = \\frac\{1\}\{\\sqrt\{8\}\}\$/);
@@ -116,6 +117,7 @@ test('escapeMdx leaves math and already escaped characters as written', async ()
   assert.match(escaped, /\$\$\nx = \{a \\over b\}\n\$\$/);
   assert.match(escaped, /costs \$5 for \\\{one\\\} and \$10 for \\\{two\\\}; `\$HOME\/\{x\}` is code\./);
   assert.match(escaped, /author: \\\{kept\\\} and \\<T>, then a raw \\\{brace\\\}\./);
+  assert.match(escaped, /autolink \\<https:\/\/example\.com\/a> and a real one \[https:\/\/example\.com\/\\\{b\\\}\]\(https:\/\/example\.com\/\\\{b\\\}\)\./);
   await checkMdx(escaped, 'math.md');
 });
 
