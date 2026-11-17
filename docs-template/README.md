@@ -96,8 +96,14 @@ expression (braces, angle brackets that are not HTML tags, autolinks) and drops 
 Code fences, inline code, LaTeX math (which Mintlify renders) and characters already escaped with
 a backslash are left as written. Math is a `$$ … $$` block with no blank line in it, or a `$…$`
 span on one line; a block with a blank line in it is escaped as prose. A `$…$` span counts as
-math only when no space follows the opening `$` or precedes the closing one, so prices stay
-prose. Navigation is one group per top-level directory.
+math only when all of these hold, so that prices and `$VAR` stay prose:
+
+- no space follows the opening `$` and none precedes the closing one;
+- no letter, digit or `$` sits right before the opening `$` or right after the closing one
+  (`$x$foo` is prose);
+- the span holds no backtick.
+
+Navigation is one group per top-level directory.
 
 The build fails when a page still does not parse as MDX, or when two sources publish to one path.
 It does not carry the per-page provenance footer or the response headers of the Starlight site;
