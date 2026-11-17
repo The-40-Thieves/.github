@@ -10,7 +10,7 @@
 //   --exclude → docs-relative paths left out entirely; `superpowers` by default
 // Mintlify parses .md as MDX, so prose is escaped where MDX would read it as JSX or an expression.
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, posix, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
@@ -135,41 +135,67 @@ export function resolveLink(url, file, site, { image = false } = {}) {
   return github(site.files.has(target) || isMarkdown(target) ? 'blob' : 'tree', inRepo);
 }
 
-/** Apply `fn` to the text of every line that is outside a fenced code block. */
+/** Apply `fn` to each run of lines that is outside a fenced code block. */
 function outsideFences(body, fn) {
+  const out = [];
+  let buffer = [];
   let inFence = false;
-  return body
-    .split('\n')
-    .map((line) => {
-      if (FENCE.test(line)) {
-        inFence = !inFence;
-        return line;
-      }
-      return inFence ? line : fn(line);
-    })
-    .join('\n');
+  const flush = () => {
+    if (buffer.length > 0) out.push(fn(buffer.join('\n')));
+    buffer = [];
+  };
+  for (const line of body.split('\n')) {
+    if (FENCE.test(line)) {
+      if (!inFence) flush();
+      out.push(line);
+      inFence = !inFence;
+    } else if (inFence) {
+      out.push(line);
+    } else {
+      buffer.push(line);
+    }
+  }
+  flush();
+  return out.join('\n');
 }
 
-/** Apply `fn` to the parts of a line that are not inside an inline code span. */
-function outsideCodeSpans(line, fn) {
-  const parts = line.split(/(`+[^`]*`+)/);
+const CODE_SPAN = '`+[^`\\n]*`+';
+
+/** Apply `fn` to the parts of a text that are not inside an inline code span. */
+function outsideCodeSpans(text, fn) {
+  const parts = text.split(new RegExp(`(${CODE_SPAN})`));
   return parts.map((part, i) => (i % 2 === 1 ? part : fn(part))).join('');
 }
 
-/** Rewrite the relative links and images of a Markdown body. */
+const INLINE_LINK = '(!?)(\\[(?:[^\\]\\\\]|\\\\.|\\][^(])*\\])\\(\\s*(<[^>]*>|[^)\\s]+)((?:\\s+"[^"]*")?\\s*)\\)';
+
+/** The labels (lower case) that a body uses as reference-style images: `![alt][id]`, `![id]`. */
+function imageReferences(body) {
+  const labels = new Set();
+  for (const match of body.matchAll(/!\[([^\]]*)\](?:\[([^\]]*)\])?(?!\()/g)) {
+    labels.add((match[2] || match[1]).trim().toLowerCase());
+  }
+  return labels;
+}
+
+/** Rewrite the relative links and images of a Markdown body. Code spans and fences are left alone. */
 export function rewriteLinks(body, file, site) {
-  return outsideFences(body, (line) => {
-    const definition = /^(\s{0,3}\[[^\]]+\]:\s*)(\S+)(.*)$/.exec(line);
-    if (definition) {
-      const next = resolveLink(definition[2], file, site);
-      return next === null ? line : `${definition[1]}${next}${definition[3]}`;
-    }
-    return line.replace(/(!?)(\[(?:[^\]\\]|\\.|\][^(])*\])\(\s*(<[^>]*>|[^)\s]+)((?:\s+"[^"]*")?\s*)\)/g, (all, bang, label, rawUrl, rest) => {
-      const url = rawUrl.startsWith('<') ? rawUrl.slice(1, -1) : rawUrl;
-      const next = resolveLink(url, file, site, { image: bang === '!' });
-      return next === null ? all : `${bang}${label}(${next}${rest})`;
-    });
-  });
+  const images = imageReferences(body);
+  const inline = new RegExp(`(${CODE_SPAN})|${INLINE_LINK}`, 'g');
+  return outsideFences(body, (text) =>
+    text
+      .replace(/^(\s{0,3}\[([^\]]+)\]:\s*)(<[^>]*>|\S+)(.*)$/gm, (all, pre, label, rawUrl, rest) => {
+        const bracketed = rawUrl.startsWith('<');
+        const next = resolveLink(bracketed ? rawUrl.slice(1, -1) : rawUrl, file, site, { image: images.has(label.trim().toLowerCase()) });
+        return next === null ? all : `${pre}${next}${rest}`;
+      })
+      .replace(inline, (all, code, bang, label, rawUrl, rest) => {
+        if (code !== undefined) return all;
+        const url = rawUrl.startsWith('<') ? rawUrl.slice(1, -1) : rawUrl;
+        const next = resolveLink(url, file, site, { image: bang === '!' });
+        return next === null ? all : `${bang}${label}(${next}${rest})`;
+      }),
+  );
 }
 
 /**
@@ -177,9 +203,9 @@ export function rewriteLinks(body, file, site) {
  * autolinks and HTML comments. Code fences and inline code spans are left alone.
  */
 export function escapeMdx(body) {
-  const withoutComments = body.replace(/<!--[\s\S]*?-->/g, '');
-  return outsideFences(withoutComments, (line) =>
-    outsideCodeSpans(line, (text) =>
+  const comments = new RegExp(`(${CODE_SPAN})|<!--[\\s\\S]*?-->`, 'g');
+  return outsideFences(body, (block) =>
+    outsideCodeSpans(block.replace(comments, (all, code) => code ?? ''), (text) =>
       text
         .replace(/<((?:https?:\/\/|mailto:)[^>\s]+)>/g, (_, url) => `[${url.replace(/^mailto:/, '')}](${url})`)
         .replace(/<(\/?)([A-Za-z][A-Za-z0-9-]*)([^<>]*)>|[<{}]/g, (match, close, name, attributes) => {
@@ -216,7 +242,7 @@ export function generatedIndex(options, groups) {
     `description: ${yamlString(options.description)}`,
     '---',
     '',
-    `Documentation for ${options.title}, published from [\`${options.docsPath}\`](${treeUrl}) in ${options.repo}.`,
+    `Documentation for ${escapeMdx(options.title)}, published from [\`${options.docsPath}\`](${treeUrl}) in ${options.repo}.`,
     '',
   ];
   for (const group of groups) {
@@ -244,6 +270,10 @@ export async function build(options) {
   if (!existsSync(options.source) || !statSync(options.source).isDirectory()) {
     throw new Error(`docs directory not found: ${options.source}`);
   }
+  const inside = (parent, child) => !relative(parent, child).startsWith('..') && !isAbsolute(relative(parent, child));
+  if (inside(options.out, options.source) || inside(options.source, options.out)) {
+    throw new Error(`the output directory must not contain or sit inside the docs directory: ${options.out}`);
+  }
   rmSync(options.out, { recursive: true, force: true });
   mkdirSync(options.out, { recursive: true });
   const all = [...walk(options.source)];
@@ -254,8 +284,9 @@ export async function build(options) {
   for (const file of files) {
     if (isMarkdown(file)) {
       const path = pagePath(contentTarget(file, existing));
-      if (taken.has(path)) throw new Error(`${file} and ${taken.get(path)} both publish as ${path}`);
-      taken.set(path, file);
+      const href = pageHref(path);
+      if (taken.has(href)) throw new Error(`${file} and ${taken.get(href)} both publish at ${href}`);
+      taken.set(href, file);
       site.pages.set(file, path);
       if (path === 'index' || path.endsWith('/index')) site.directories.set(posix.dirname(file) === '.' ? '' : posix.dirname(file), path);
     } else if (isImage(file)) {
@@ -294,8 +325,10 @@ export async function build(options) {
   const groups = order.map((top) => ({ name: top === '' ? 'Guides' : titleFromFileName(top), pages: byGroup.get(top).sort(indexFirst) }));
 
   let generated = false;
-  if (!taken.has('index')) {
-    writeFileSync(join(options.out, 'index.md'), generatedIndex(options, groups));
+  if (!taken.has('/')) {
+    const index = generatedIndex(options, groups);
+    await checkMdx(index, 'the generated index');
+    writeFileSync(join(options.out, 'index.md'), index);
     generated = true;
   }
   const navigation = [{ group: 'Overview', pages: ['index'] }, ...groups.map((group) => ({ group: group.name, pages: group.pages.map((page) => page.path) }))];

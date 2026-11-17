@@ -178,6 +178,12 @@ jobs:
         run: |
           set -euo pipefail
           test -f "$DIST/docs.json"
+          # A slower build of an older push must not overwrite a newer publish.
+          head="$(git ls-remote origin "$GITHUB_REF" | cut -f1)"
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo "${GITHUB_REF} has moved to ${head}; leaving the publish to that run"
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if git ls-remote --exit-code --heads origin docs-site >/dev/null; then

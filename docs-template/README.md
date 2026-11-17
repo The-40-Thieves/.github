@@ -76,6 +76,10 @@ a `docs.json` and its pages, with no Starlight build. The reusable workflow
 branch; the docs hub pulls that branch in under `https://docs.the40thieves.dev/<project>/`. A
 project uses one workflow or the other, not both.
 
+Publishing the branch is not enough on its own: the project must also be listed as a source in
+the hub repository's `.github/mintlify-multirepo.yml` (with `ref: docs-site`) and given a tab in
+its `docs.base.json`. Until then the branch exists but the hub does not serve it.
+
 | Source                                | Published as                                                |
 | ------------------------------------- | ----------------------------------------------------------- |
 | `docs/a/b.md`                         | `/<project>/a/b` (same path as under `/<project>/docs/`)    |

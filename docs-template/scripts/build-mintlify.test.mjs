@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { build, checkMdx, escapeMdx, pageHref, pagePath, parseOptions, resolveLink } from './build-mintlify.mjs';
+import { build, checkMdx, escapeMdx, pageHref, pagePath, parseOptions, resolveLink, rewriteLinks } from './build-mintlify.mjs';
 
 const SHA = '0'.repeat(40);
 
@@ -140,4 +140,48 @@ test('parseOptions validates the project, repository and commit', () => {
   assert.deepEqual(parseOptions(base).exclude, ['superpowers']);
   assert.throws(() => parseOptions(['--source', '.', '--project', 'Demo', '--repo', 'a/b', '--sha', SHA]), /lowercase slug/);
   assert.throws(() => parseOptions(['--source', '.', '--project', 'demo', '--repo', 'a/b', '--sha', 'abc']), /40-character/);
+});
+
+test('rewriteLinks leaves code spans alone and handles reference definitions', () => {
+  const body = [
+    'Write `[label](guide/one.md)` to link, as in [`one`](guide/one.md).',
+    'A [reference][one], an ![image ref][logo] and a ![shot].',
+    '',
+    '[one]: <guide/one.md>',
+    '[logo]: ../logo.png',
+    '[shot]: guide/pic.png',
+    '',
+    '```md',
+    '[kept](guide/one.md)',
+    '```',
+  ].join('\n');
+  const out = rewriteLinks(body, 'README.md', site);
+  assert.match(out, /Write `\[label\]\(guide\/one\.md\)` to link, as in \[`one`\]\(\/guide\/one\)\./);
+  assert.match(out, /^\[one\]: \/guide\/one$/m);
+  assert.ok(out.includes(`\n[logo]: https://github.com/The-40-Thieves/demo/raw/${SHA}/logo.png\n`));
+  assert.match(out, /^\[shot\]: \/guide\/pic\.png$/m);
+  assert.match(out, /^\[kept\]\(guide\/one\.md\)$/m);
+});
+
+test('escapeMdx keeps HTML comments that are inside code', () => {
+  const out = escapeMdx('Use `<!-- note -->` inline. <!-- gone -->\n\n```html\n<!-- kept -->\n```\n');
+  assert.match(out, /Use `<!-- note -->` inline\. \n/);
+  assert.match(out, /```html\n<!-- kept -->\n```/);
+  assert.doesNotMatch(out, /gone/);
+});
+
+test('build refuses two sources at one URL and an output directory that overlaps the docs', async () => {
+  const clash = docsTree({ 'foo.md': '# Foo\n', 'foo/README.md': '# Foo index\n' });
+  await assert.rejects(build(options(clash)), /both publish at \/foo/);
+
+  const tree = docsTree({ 'one.md': '# One\n' });
+  await assert.rejects(build(options(tree, { out: join(tree.source, 'site') })), /must not contain or sit inside/);
+  await assert.rejects(build(options(tree, { out: join(tree.source, '..') })), /must not contain or sit inside/);
+  assert.ok(existsSync(join(tree.source, 'one.md')));
+});
+
+test('a generated index with markup in the site title still parses', async () => {
+  const tree = docsTree({ 'one.md': '# One <T> {x}\n' });
+  await build(options(tree, { title: 'Docs <tag> {x}' }));
+  assert.ok(readFileSync(join(tree.out, 'index.md'), 'utf8').includes(String.raw`Documentation for Docs \<tag> \{x\}, published`));
 });

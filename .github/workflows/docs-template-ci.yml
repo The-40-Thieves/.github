@@ -70,18 +70,7 @@ jobs:
         run: |
           site=dist-mintlify
           test -f $site/docs.json
-          grep -q '^title: "Fixture docs"
-  build-as-caller:
-    name: build-as-caller
-    # The reusable workflow against this repository's own fixture, deploy off: proves the caller
-    # contract (checkout of the template, pnpm cache paths, inputs) before a project uses it.
-    uses: ./.github/workflows/docs-deploy.yml
-    with:
-      project: fixture
-      docs-path: docs-template/fixture/docs
-      title: Fixture
-      deploy: false
- $site/index.md
+          grep -q '^title: "Fixture docs"$' $site/index.md
           grep -q '](/guide/one)' $site/index.md
           grep -q '](/guide)' $site/index.md
           grep -q '](/guide/one#second-heading)' $site/index.md
@@ -107,6 +96,7 @@ jobs:
 
   build-mintlify-as-caller:
     name: build-mintlify-as-caller
+    # The Mintlify reusable workflow against the same fixture, publish off.
     uses: ./.github/workflows/docs-mintlify.yml
     with:
       project: fixture
