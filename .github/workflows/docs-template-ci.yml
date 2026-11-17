@@ -9,11 +9,13 @@ on:
       - docs-template/**
       - .github/workflows/docs-template-ci.yml
       - .github/workflows/docs-deploy.yml
+      - .github/workflows/docs-mintlify.yml
   pull_request:
     paths:
       - docs-template/**
       - .github/workflows/docs-template-ci.yml
       - .github/workflows/docs-deploy.yml
+      - .github/workflows/docs-mintlify.yml
 
 permissions:
   contents: read
@@ -62,6 +64,24 @@ jobs:
           test ! -e $site/superpowers
           ! grep -rq 'must not publish' $site
           ! grep -q 'superpowers' $site/index.html
+      - name: Build the fixture docs as a Mintlify site
+        run: pnpm fixture-mintlify
+      - name: The Mintlify fixture's pages and links resolve as intended
+        run: |
+          site=dist-mintlify
+          test -f $site/docs.json
+          grep -q '^title: "Fixture docs"$' $site/index.md
+          grep -q '](/guide/one)' $site/index.md
+          grep -q '](/guide)' $site/index.md
+          grep -q '](/guide/one#second-heading)' $site/index.md
+          grep -q '](https://github.com/The-40-Thieves/.github/blob/0000000000000000000000000000000000000000/docs-template/fixture/docs/data/sample.json)' $site/index.md
+          grep -q '](https://github.com/The-40-Thieves/.github/blob/0000000000000000000000000000000000000000/docs-template/fixture/README.md)' $site/index.md
+          grep -q '](/guide/pic.png)' $site/guide/one.md
+          test -f $site/guide/index.md
+          test -f $site/guide/pic.png
+          test ! -e $site/superpowers
+          test ! -e $site/data
+          ! grep -rq 'must not publish' $site
 
   build-as-caller:
     name: build-as-caller
@@ -73,3 +93,17 @@ jobs:
       docs-path: docs-template/fixture/docs
       title: Fixture
       deploy: false
+
+  build-mintlify-as-caller:
+    name: build-mintlify-as-caller
+    # The Mintlify reusable workflow against the same fixture, publish off. The called workflow's
+    # publish job declares contents: write, and a caller must grant at least what a nested job
+    # declares even when that job is skipped; nothing is written here.
+    permissions:
+      contents: write
+    uses: ./.github/workflows/docs-mintlify.yml
+    with:
+      project: fixture
+      docs-path: docs-template/fixture/docs
+      title: Fixture
+      publish: false
